@@ -1,1 +1,8 @@
+PRAKTIKUM MPDW
 
+```{r}
+x=5+4
+x
+```
+
+![](images/Screenshot 2025-08-04 184937.png){width="422"}
