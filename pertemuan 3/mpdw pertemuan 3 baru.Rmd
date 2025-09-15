@@ -1,0 +1,271 @@
+---
+title: "TUGAS PRAK MPDW P3"
+author: "ATHIA ZULFA"
+date: "2025-09-14"
+output: html_document
+---
+```{r}
+library(dLagM)
+library(dynlm)
+library(MLmetrics)
+library(lmtest)
+library(car)
+library(corrplot)
+library(ggplot2)
+```
+
+```{r}
+library(readr)
+
+# Baca file CSV
+data <- read.csv("C:/Users/PNJ/Downloads/data mpdw P3.csv", header = TRUE, sep = ";")
+
+# Lihat 6 baris pertama
+head(data)
+
+
+# Lihat 6 baris pertama
+head(data)
+
+```
+```{r}
+View(data)
+```
+
+```{r}
+str(data)   # cek struktur data
+```
+
+NO2 sebagian besar berasal dari emisi kendaraan bermotor dan aktivitas industri, yang merupakan sumber utama polusi di daerah perkotaan. Dengan menggunakan NO2 sebagai peubah X, model dapat secara tidak langsung merefleksikan pengaruh aktivitas-aktivitas ini terhadap kualitas udara secara keseluruhan
+ 
+##Pengecekan Asumsi
+```{r}
+# Regresi sederhana: AQI diprediksi oleh NO2
+model_no2 <- lm(AQI ~ no2, data = data)
+
+# Ringkasan hasil regresi
+summary(model_no2)
+
+```
+
+
+
+```{r}
+library(ggplot2)
+
+ggplot(data, aes(x = no2, y = AQI)) +
+  geom_point(color = "blue", size = 2) +  # titik data
+  geom_smooth(method = "lm", se = TRUE, color = "red") + # garis regresi + CI
+  labs(title = "Regresi Linear: AQI ~ NO2",
+       x = "NO2",
+       y = "AQI") +
+  theme_minimal()
+
+
+```
+
+
+## Normalitas Residual
+```{r}
+# Uji Shapiro-Wilk
+shapiro.test(residuals(model_no2))
+```
+Berdasalkan hasil p-value < 0.05, maka Tolak H0.Sehingga, didapatkan bahwa residual tidak berdistribusi normal
+
+
+## Homoskedastisitas
+```{r}
+bptest(model_no2)
+```
+Berdasakan hasil p-value (0.0511) > 0.05, maka terima H0. Sehingga didapatkan bahwa ragam homogen.
+
+```{r}
+plot(model_no2$fitted.values, residuals(model_no2))
+plot(model_no2, which = 1) # Residuals vs Fitted
+plot(model_no2, which = 4) # Cook's distance
+
+```
+
+## Pembagian Data
+```{r}
+train<-data[1:58,]
+test<-data[59:72,]
+```
+
+##SPLIT DATA
+```{r}
+train<-data[1:58,]
+test<-data[59:72,]
+```
+
+```{r}
+#data time series
+train.ts<-ts(train)
+test.ts<-ts(test)
+data.ts<-ts(data)
+```
+
+###MODEL KOYCK
+```{r}
+model.koyck <- koyckDlm(x = data$no2, y = data$AQI)
+summary(model.koyck)
+AIC(model.koyck)
+BIC(model.koyck)
+```
+
+**Interpretasi Hasil:**
+-   Dari `summary`, kita dapatkan model:
+
+    $$ \hat{Y_t}=2.34663+31.68081X_t+0.85831_{t-1} $$
+
+    Koefisien $X_t$ (0.0495) signifikan, artinya nilai \$X\$ saat ini berpengaruh terhadap $Y$.
+
+-   Koefisien $Y_{t−1}$ (<2e-16) juga signifikan. Ini adalah **estimasi untuk** $\lambda$. Nilai ini menunjukkan danya autokorelasi  antara nilai Y dari satu periode ke periode berikutnya.
+
+## Peramalan dan Akurasi
+```{r}
+fore.koyck <- forecast(model = model.koyck, x=test$no2, h=14)
+fore.koyck
+```
+###datatest
+```{r}
+mape.koyck <- MAPE(fore.koyck$forecasts, test$AQI)
+mape.koyck 
+```
+###akurasi data training
+
+```{r}
+GoF(model.koyck)
+```
+Hasil evaluasi menunjukkan bahwa model Koyck memiliki tingkat akurasi yang baik. Pada data training, nilai MAPE sebesar 0.0284 atau sekitar 2,84%, sedangkan pada data testing nilai MAPE sebesar 0.1576 atau sekitar 15,76%. Nilai MAPE yang berada di bawah 20% mengindikasikan bahwa kesalahan peramalan model relatif kecil.
+
+## Regression with Distributed Lag
+## Lag Optimum
+```{r}
+finiteDLMauto(formula = AQI ~ no2,
+              data = data.frame(train), q.min = 1, q.max = 10,
+              model.type = "dlm", error.type = "AIC", trace = TRUE)
+```
+
+Berdasarkan output tersebut, lag optimum didapatkan ketika lag=10. Selanjutnya dilakukan pemodelan untuk lag=10
+
+```{r}
+#model dlm dengan lag optimum
+model.dlm2 <- dlm(x = train$no2,y = train$AQI , q = 10)
+summary(model.dlm2)
+```
+
+```{r}
+model.dlm <- dlm(x = train$no2,y = train$AQI , q = 2)
+summary(model.dlm)
+AIC(model.dlm)
+BIC(model.dlm)
+```
+Dari hasil tersebut terdapat beberapa peubah yang berpengaruh signifikan terhadap taraf nyata 5% yaitu $x_t$ , $x_{t-7}$ , $x_{t-8}$ , $x_{t-9}$. Adapun keseluruhan model yang terbentuk adalah
+
+$$
+\hat{Y_t}=-0.6427+0.4281X_t+...-0.09537X_{t-10}
+$$
+
+## Peramalan dan Akurasi
+```{r}
+fore.dlm2 <- forecast(model = model.dlm2, x=test$no2, h=14)
+
+#akurasi data test
+mape.dlm2<- MAPE(fore.dlm2$forecasts, test$AQI)
+mape.dlm2
+```
+```{r}
+#akurasi data training
+GoF(model.dlm2)
+```
+Model Distributed Lag yang digunakan memiliki performa sangat baik baik pada data training maupun testing. Nilai MAPE yang rendah (<10%) menunjukkan bahwa model mampu memprediksi nilai AQI dengan tingkat akurasi yang sangat tinggi
+
+# Model Autoregressive
+## Lag Optimum
+```{r}
+model.ardl.opt <- ardlBoundOrders(data = data.frame(data), ic = "AIC", 
+                                  formula = AQI ~ no2 )
+model.ardl.opt
+```
+
+```{r}
+min_p=c()
+for(i in 1:6){
+  min_p[i]=min(model.ardl.opt$Stat.table[[i]])
+}
+q_opt=which(min_p==min(min_p, na.rm = TRUE))
+p_opt=which(model.ardl.opt$Stat.table[[q_opt]] == 
+              min(model.ardl.opt$Stat.table[[q_opt]], na.rm = TRUE))
+data.frame("q_optimum" = q_opt, "p_optimum" = p_opt, 
+           "AIC"=model.ardl.opt$min.Stat)
+```
+
+Dari tabel di atas, dapat terlihat bahwa nilai AIC terendah didapat ketika $p=14$ dan $q=6$, yaitu sebesar 133.8784. Artinya, model autoregressive optimum didapat ketika $p=14$ dan $q=6$.
+
+
+```{r}
+model.ardl2 <- ardlDlm(formula = AQI ~ no2, 
+                         data = train,p = 14, q = 6)
+summary(model.ardl2)
+AIC(model.ardl2)
+BIC(model.ardl2)
+```
+
+Hasil di atas menunjukkan bahwa selain peubah $x_{t}$, hasil uji t menunjukkan nilai-p pada peubah $\ge0.05$ Hal ini menunjukkan bahwa ada peubah $x_{t}$ berpengaruh signifikan terhadap $y_t$. Model keseluruhannya adalah sebagai berikut:
+
+
+$$
+\hat{Y_t}=3.19377X_t+96.16559X_{t-1}+...+0.80575_{t-2}
+$$
+# Peramalan dan Akurasi
+```{r}
+fore.ardl2 <- forecast(model = model.ardl2, x=test$no2, h=14)
+fore.ardl2
+```
+
+```{r}
+# Akurasi data testing
+mape.ardl <- MAPE(fore.ardl2$forecasts, test$AQI)
+mape.ardl
+
+library(dLagM)
+
+# Akurasi data training
+model.ardl <- ardlDlm(x = train$no2, y = train$AQI, p = 1, q = 1)
+summary(model.ardl)
+AIC(model.ardl)
+BIC(model.ardl)
+GoF(model.ardl)
+
+
+
+```
+
+Berdasarkan akurasi di atas, terlihat bahwa model memiliki performa sangat baik baik pada data training maupun testing. Nilai MAPE yang rendah (<10%) menunjukkan bahwa model mampu memprediksi nilai AQI dengan tingkat akurasi yang sangat tinggi. Nilai MAPE keduanya tidak jauh berbeda. Artinya, model regresi dengan distribusi lag ini tidak`overfitted` atau `underfitted`. 
+
+# Perbandingan Model
+```{r}
+akurasi <- matrix(c(mape.koyck, mape.dlm2, mape.ardl))
+row.names(akurasi)<- c("Koyck","DLM","Autoregressive")
+colnames(akurasi) <- c("MAPE")
+akurasi
+```
+Berdasarkan nilai MAPE, model paling optimum didapat pada Model Autoregressive karena memiliki nilai MAPE yang terkecil.
+
+## Plot
+```{r}
+par(mfrow=c(1,1))
+plot(test$no2, test$AQI, type="b", col="black", ylim=c(10,28))
+points(test$no2, fore.koyck$forecasts,col="red")
+lines(test$no2, fore.koyck$forecasts,col="red")
+points(test$no2, fore.dlm2$forecasts,col="orange")
+lines(test$no2, fore.dlm2$forecasts,col="orange")
+points(test$no2, fore.ardl2$forecasts,col="green")
+lines(test$no2, fore.ardl2$forecasts,col="green")
+legend("topleft",c("aktual", "koyck","DLM", "autoregressive"), lty=1, col=c("black","red","orange","green"), cex=0.8)
+```
+
+Berdasarkan plot tersebut, terlihat bahwa plot yang paling mendekati data aktualnya adalah Model Distributed Lag dan Autoregressive, namun berdasarkan nilai MAPE, Autoregressive memiliki nilai MAPE yang lebih kecil. Sehingga dapat disimpulkan model terbaik dalam hal ini adalah model autoregressive.
+
+
